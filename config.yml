@@ -28,11 +28,11 @@ destination:
     lifecycle: ""
     cumulative_performance: ""
     last_synced_date: "" # Optional; leave blank to omit.
-  active_status: 投放中
-  stopped_status: 已停投
+  active_status: 正在投放
+  stopped_status: 已暂停
 
-# An empty state is initialized from the Raw table: recent two days both zero -> 已停投;
-# otherwise -> 投放中. 已停投 is a terminal value for this program and is never reversed.
+# An empty state is initialized from the Raw table: recent two days both zero -> 已暂停;
+# otherwise -> 正在投放. 已暂停 is a terminal value for this program and is never reversed.
 rules:
   stopped_after_zero_spend_days: 2
   allow_empty_status_initialization: true

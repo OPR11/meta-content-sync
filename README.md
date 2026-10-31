@@ -7,9 +7,9 @@ Daily Feishu synchronization for the Meta content hub. It reads **US-META 26 Ad 
 - Runs at **05:00, 10:00, 15:00, 20:00 Asia/Shanghai**.
 - Every run targets the previous calendar day; current-day raw data is never included.
 - Once a report date succeeds, `state/sync_state.json` prevents the remaining runs that day from writing again.
-- An active ad whose most recent two natural days each have spend `0` (a missing day counts as `0`) becomes `已停投`.
-- `已停投` is a terminal program state: it is never restored to `投放中`, and no lifecycle or performance data is updated afterwards.
-- When an ad becomes `已停投`, that run changes its status only; its accumulated performance is frozen at the prior successful active run.
+- An active ad whose most recent two natural days each have spend `0` (a missing day counts as `0`) becomes `已暂停`.
+- `已暂停` is a terminal program state: it is never restored to `正在投放`, and no lifecycle or performance data is updated afterwards.
+- When an ad becomes `已暂停`, that run changes its status only; its accumulated performance is frozen at the prior successful active run.
 - Raw rows are grouped by `Ad ID + Date` before they are accumulated. This safely handles daily breakdown rows.
 - Raw IDs with no content-hub record are reported but never create a new content record.
 
@@ -40,6 +40,6 @@ Configure the exact Feishu field names in `config.yml`:
 
 ## Manual recovery
 
-- To re-enable an intentionally restarted ad, manually change its status in Feishu to `投放中`. The next successful run can update it again.
+- To re-enable an intentionally restarted ad, manually change its status in Feishu to `正在投放`. The next successful run can update it again.
 - To reprocess a report date, edit `state/sync_state.json` and clear or replace `last_successful_report_date`, then run the workflow manually.
 - The workflow commits only changes to `state/sync_state.json`; credentials are never stored in the repository.
