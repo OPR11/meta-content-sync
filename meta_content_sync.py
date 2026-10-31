@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
 import requests
@@ -91,6 +92,21 @@ class Feishu:
         if not response.ok or payload.get("code") not in (0, None):
             raise SyncError(f"Feishu API request failed ({method} {path}): {payload}")
         return payload
+
+    def wiki_app_token(self, wiki_url: str, table_id: str) -> str:
+        parsed = urlsplit(wiki_url)
+        if parsed.scheme != "https" or not parsed.hostname or not parsed.hostname.endswith(".feishu.cn"):
+            raise SyncError(f"Invalid Feishu Wiki URL: {wiki_url}")
+        match = re.fullmatch(r"/wiki/([A-Za-z0-9]+)", parsed.path)
+        if not match:
+            raise SyncError(f"Expected a Feishu Wiki node URL: {wiki_url}")
+        url_table = parse_qs(parsed.query).get("table", [""])[0]
+        if url_table != table_id:
+            raise SyncError(f"Wiki link table ID {url_table!r} differs from configured {table_id!r}.")
+        node = self._request("GET", "/wiki/v2/spaces/get_node", params={"token": match.group(1)}).get("data", {}).get("node", {})
+        if node.get("obj_type") != "bitable" or not node.get("obj_token"):
+            raise SyncError(f"Wiki node does not resolve to a Base (obj_type={node.get('obj_type')!r}).")
+        return node["obj_token"]
 
     def fields(self, app_token: str, table_id: str) -> list[dict[str, Any]]:
         return self._request("GET", f"/bitable/v1/apps/{app_token}/tables/{table_id}/fields").get("data", {}).get("items", [])
@@ -185,6 +201,9 @@ def main() -> int:
     args = parser.parse_args()
     config = load_config(Path(args.config))
     client = Feishu(config["feishu"]["app_id"], config["feishu"]["app_secret"])
+    for label in ("source", "destination"):
+        spec = config[label]
+        spec["app_token"] = client.wiki_app_token(spec["wiki_url"], spec["table_id"])
 
     if args.diagnose or config.get("mode") == "diagnostic":
         field_report(client, "SOURCE", config["source"])
