@@ -8,7 +8,7 @@ feishu:
 
 source:
   app_token: ${FEISHU_SOURCE_APP_TOKEN}
-  table_id: tblHqpejaSqzcsOX # US-META 26 Ad Daily Raw
+  table_id: tblNs0VHLchZs3wf # US-META 26 Ad Daily Raw
   fields:
     date: ""
     ad_id: ""
