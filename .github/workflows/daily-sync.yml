@@ -33,8 +33,6 @@ jobs:
         env:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
-          FEISHU_SOURCE_APP_TOKEN: ${{ secrets.FEISHU_SOURCE_APP_TOKEN }}
-          FEISHU_DESTINATION_APP_TOKEN: ${{ secrets.FEISHU_DESTINATION_APP_TOKEN }}
         run: python meta_content_sync.py --config config.yml
       - name: Save successful-sync state
         run: |
