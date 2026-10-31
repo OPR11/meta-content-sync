@@ -226,6 +226,10 @@ def main() -> int:
         current_status = text(fields.get(dest_fields["status"]))
         if current_status == stopped:
             continue  # Terminal lock: never re-open and never update its data.
+        if current_status not in ("", active):
+            continue
+        if current_status == "" and not config["rules"]["allow_empty_status_initialization"]:
+            continue
         ad_days = by_ad.get(ad_id)
         if not ad_days:
             continue
@@ -233,8 +237,6 @@ def main() -> int:
         if is_stopped:
             updates.append({"record_id": record["record_id"], "fields": {dest_fields["status"]: stopped}})
             continue  # Do not change performance values on the stopping run.
-        if current_status not in ("", active) and not config["rules"]["allow_empty_status_initialization"]:
-            continue
         lifecycle_text, performance_text = summaries(ad_days, target, life)
         write_fields = {dest_fields["status"]: active, dest_fields["lifecycle"]: lifecycle_text, dest_fields["cumulative_performance"]: performance_text}
         if dest_fields.get("last_synced_date"):
