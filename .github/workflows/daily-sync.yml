@@ -1,17 +1,21 @@
 name: Meta content sync
 
+
 on:
   workflow_dispatch:
   schedule:
     # UTC schedule: 05:00, 10:00, 15:00, 20:00 Asia/Shanghai (UTC+8)
     - cron: "0 21,2,7,12 * * *"
 
+
 permissions:
   contents: write
+
 
 concurrency:
   group: meta-content-sync
   cancel-in-progress: false
+
 
 jobs:
   sync:
@@ -31,7 +35,7 @@ jobs:
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_SOURCE_APP_TOKEN: ${{ secrets.FEISHU_SOURCE_APP_TOKEN }}
           FEISHU_DESTINATION_APP_TOKEN: ${{ secrets.FEISHU_DESTINATION_APP_TOKEN }}
-        run: python src/meta_content_sync.py --config config/config.yml
+        run: python meta_content_sync.py --config config.yml
       - name: Save successful-sync state
         run: |
           if git diff --quiet -- state/sync_state.json; then exit 0; fi
@@ -40,3 +44,4 @@ jobs:
           git add state/sync_state.json
           git commit -m "chore: record successful report-date sync"
           git push
+
