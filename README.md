@@ -21,8 +21,10 @@ Daily Feishu synchronization for the Meta content hub. It reads **US-META 26 Ad 
    | --- | --- |
    | `FEISHU_APP_ID` | Feishu self-built application App ID |
    | `FEISHU_APP_SECRET` | Feishu self-built application App Secret |
+   | `FEISHU_SOURCE_APP_TOKEN` | Optional source Base token; skips source Wiki resolution |
+   | `FEISHU_DESTINATION_APP_TOKEN` | Optional destination Base token; skips destination Wiki resolution |
 
-2. Grant the Feishu app Wiki node read scope and access to both Wiki nodes, plus read access to Raw and read/write access to the destination Base. The script resolves each Base token from the two `wiki_url` values in `config.yml`.
+2. Grant the app read access to Raw and read/write access to the destination Base. When both optional Base token secrets are set, the script accesses the Bases directly and does not call Wiki. Without a token, it resolves that Base from its `wiki_url`, which also requires Wiki node read scope and access to that node.
 3. Run **Actions → Meta content sync → Run workflow** once. The repository starts in `diagnostic` mode: it prints each table's field names, IDs, and types and changes no records.
 4. Copy the verified field names into `config.yml`. Keep lifecycle and cumulative-performance destination fields as text fields.
 5. Change `mode: diagnostic` to `mode: sync`, commit the configuration, and use **Run workflow** for the first live run.
