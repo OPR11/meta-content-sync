@@ -203,7 +203,9 @@ def main() -> int:
     client = Feishu(config["feishu"]["app_id"], config["feishu"]["app_secret"])
     for label in ("source", "destination"):
         spec = config[label]
-        spec["app_token"] = client.wiki_app_token(spec["wiki_url"], spec["table_id"])
+        direct_token = os.environ.get(f"FEISHU_{label.upper()}_APP_TOKEN", "").strip()
+        spec["app_token"] = direct_token or client.wiki_app_token(spec["wiki_url"], spec["table_id"])
+        print(f"{label.upper()}: using {'configured Base token' if direct_token else 'Wiki resolution'}.")
 
     if args.diagnose or config.get("mode") == "diagnostic":
         field_report(client, "SOURCE", config["source"])
