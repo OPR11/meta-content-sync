@@ -26,12 +26,12 @@ Daily Feishu synchronization for the Meta content hub. It reads **US-META 26 Ad 
 
 2. Add the Feishu app as a collaborator of both Bases, with read access to Raw and read/write access to the destination table.
 3. Run **Actions → Meta content sync → Run workflow** once. The repository starts in `diagnostic` mode: it prints each table's field names, IDs, and types and changes no records.
-4. Copy the verified field names into `config/config.yml`. Keep lifecycle and cumulative-performance destination fields as text fields.
+4. Copy the verified field names into `config.yml`. Keep lifecycle and cumulative-performance destination fields as text fields.
 5. Change `mode: diagnostic` to `mode: sync`, commit the configuration, and use **Run workflow** for the first live run.
 
 ## Required field mapping
 
-Configure the exact Feishu field names in `config/config.yml`:
+Configure the exact Feishu field names in `config.yml`:
 
 - Raw: `date`, `ad_id`, `spend`, `impressions`; optional `reach`, `clicks`, `purchases`, `purchase_value`.
 - Content hub: `ad_id`, `status`, `lifecycle`, `cumulative_performance`; optional `last_synced_date`.
