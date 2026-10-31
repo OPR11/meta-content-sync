@@ -21,10 +21,8 @@ Daily Feishu synchronization for the Meta content hub. It reads **US-META 26 Ad 
    | --- | --- |
    | `FEISHU_APP_ID` | Feishu self-built application App ID |
    | `FEISHU_APP_SECRET` | Feishu self-built application App Secret |
-   | `FEISHU_SOURCE_APP_TOKEN` | Base token of META 数据看板 |
-   | `FEISHU_DESTINATION_APP_TOKEN` | Base token of Meta内容中台 |
 
-2. Add the Feishu app as a collaborator of both Bases, with read access to Raw and read/write access to the destination table.
+2. Grant the Feishu app Wiki node read scope and access to both Wiki nodes, plus read access to Raw and read/write access to the destination Base. The script resolves each Base token from the two `wiki_url` values in `config.yml`.
 3. Run **Actions → Meta content sync → Run workflow** once. The repository starts in `diagnostic` mode: it prints each table's field names, IDs, and types and changes no records.
 4. Copy the verified field names into `config.yml`. Keep lifecycle and cumulative-performance destination fields as text fields.
 5. Change `mode: diagnostic` to `mode: sync`, commit the configuration, and use **Run workflow** for the first live run.
@@ -36,7 +34,7 @@ Configure the exact Feishu field names in `config.yml`:
 - Raw: `date`, `ad_id`, `spend`, `impressions`; optional `reach`, `clicks`, `purchases`, `purchase_value`.
 - Content hub: `ad_id`, `status`, `lifecycle`, `cumulative_performance`; optional `last_synced_date`.
 
-`source.table_id` is prefilled for **US-META 26 Ad Daily Raw** and `destination.table_id` for **META内容中台源表**. Confirm both with the diagnostic output before live sync.
+`source.wiki_url`, `destination.wiki_url`, and both table IDs are prefilled from the supplied Feishu links. No Base token secrets are required. Confirm both tables with the diagnostic output before live sync.
 
 ## Manual recovery
 
