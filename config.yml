@@ -7,8 +7,8 @@ feishu:
   app_secret: ${FEISHU_APP_SECRET}
 
 source:
-  wiki_url: https://lcnjnx6udyw7.feishu.cn/wiki/Ka4pw0Asvif29vkfTLschR9Kn4g?table=tblNs0VHLchZs3wf&view=vewyMzx1jM
-  table_id: tblNs0VHLchZs3wf # US-META 26 Ad Daily Raw
+  wiki_url: https://lcnjnx6udyw7.feishu.cn/wiki/Ka4pw0Asvif29vkfTLschR9Kn4g?table=tblHqpejaSqzcsOX
+  table_id: tblHqpejaSqzcsOX # US-META 26 Ad Daily Raw
   fields:
     date: ""
     ad_id: ""
