@@ -8,8 +8,9 @@ Daily Feishu synchronization for the Meta content hub. It reads **US-META 26 Ad 
 - Every run targets the previous calendar day; current-day raw data is never included.
 - Once a report date succeeds, `state/sync_state.json` prevents the remaining runs that day from writing again.
 - Only destination records whose status is exactly `正在投放` are processed. Blank, paused, or other statuses are never updated.
-- Each ad must have its own Raw row for the previous calendar day before that ad is updated. Another ad's row does not make it ready.
-- An active ad becomes `已暂停` only when both of the most recent two natural days have explicit Raw rows and each day's spend is `0`. A missing row is unknown, not zero.
+- The target date must exist in the Raw table before any ad is processed; otherwise the run exits and retries later.
+- For an active destination ad that already has Raw history, a missing row on or after its first Raw date is inferred as an explicit zero-delivery day when that date is present elsewhere in the Raw table. Earlier dates, dates absent from the whole Raw table, and ads with no Raw history remain unknown.
+- An active ad becomes `已暂停` only when both of the most recent two natural days are confirmed complete and each day's spend is explicitly or safely inferred as `0`.
 - The stopping run first writes the latest cumulative performance, then changes the status to `已暂停` and sets the end date to the latest day with spend or impressions.
 - `已暂停` is terminal for this program. To restart syncing, a person must change the record back to `正在投放`.
 - Raw rows are grouped by `Ad ID + Date` before they are accumulated. This safely handles daily breakdown rows.

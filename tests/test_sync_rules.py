@@ -116,7 +116,7 @@ class SyncRuleTests(unittest.TestCase):
         self.assertEqual(plan["skipped_not_active"], 1)
         self.assertIsNone(plan["updates"][0]["fields"]["结束投放时间"])
 
-    def test_each_ad_requires_its_own_previous_day_row(self):
+    def test_complete_raw_day_infers_zero_for_known_ad_without_target_row(self):
         target = date(2026, 10, 31)
         source = [
             raw("ready-ad", target),
@@ -133,8 +133,15 @@ class SyncRuleTests(unittest.TestCase):
             timezone_name="Asia/Shanghai",
         )
 
-        self.assertEqual([item["record_id"] for item in plan["updates"]], ["rec-ready"])
-        self.assertEqual(plan["skipped_missing_target"], ["late-ad"])
+        self.assertEqual(
+            [item["record_id"] for item in plan["updates"]],
+            ["rec-ready", "rec-late"],
+        )
+        self.assertEqual(plan["skipped_missing_target"], [])
+        self.assertEqual(
+            plan["inferred_zero_days"],
+            [{"ad_id": "late-ad", "dates": [target]}],
+        )
 
     def test_two_explicit_zero_spend_days_pause_after_writing_final_totals(self):
         target = date(2026, 10, 31)
@@ -175,6 +182,71 @@ class SyncRuleTests(unittest.TestCase):
 
         self.assertNotIn("素材状态", plan["updates"][0]["fields"])
         self.assertIsNone(plan["updates"][0]["fields"]["结束投放时间"])
+
+    def test_missing_target_row_is_zero_when_raw_day_is_complete(self):
+        target = date(2026, 10, 31)
+        source = [
+            raw("known-ad", date(2026, 10, 30), spend=10, impressions=100),
+            raw("other-ad", target, spend=5, impressions=50),
+        ]
+
+        plan = build_update_plan(
+            source, [destination("rec-known", "known-ad", "正在投放")],
+            SOURCE_FIELDS, DESTINATION_FIELDS, target,
+            active_status="正在投放", stopped_status="已暂停", zero_days=2,
+            timezone_name="Asia/Shanghai",
+        )
+
+        self.assertEqual([item["record_id"] for item in plan["updates"]], ["rec-known"])
+        self.assertEqual(plan["skipped_missing_target"], [])
+        self.assertEqual(plan["updates"][0]["fields"]["Spend"], 10.0)
+        self.assertEqual(
+            plan["inferred_zero_days"],
+            [{"ad_id": "known-ad", "dates": [target]}],
+        )
+
+    def test_two_complete_missing_days_pause_an_ad_with_history(self):
+        target = date(2026, 10, 31)
+        source = [
+            raw("known-ad", date(2026, 10, 29), spend=10, impressions=100),
+            raw("other-ad", date(2026, 10, 30), spend=5, impressions=50),
+            raw("other-ad", target, spend=5, impressions=50),
+        ]
+
+        plan = build_update_plan(
+            source, [destination("rec-known", "known-ad", "正在投放")],
+            SOURCE_FIELDS, DESTINATION_FIELDS, target,
+            active_status="正在投放", stopped_status="已暂停", zero_days=2,
+            timezone_name="Asia/Shanghai",
+        )
+
+        fields = plan["updates"][0]["fields"]
+        self.assertEqual(fields["素材状态"], "已暂停")
+        self.assertEqual(
+            plan["inferred_zero_days"],
+            [{
+                "ad_id": "known-ad",
+                "dates": [date(2026, 10, 30), target],
+            }],
+        )
+
+    def test_missing_rows_remain_unknown_when_ad_has_no_raw_history(self):
+        target = date(2026, 10, 31)
+        source = [
+            raw("other-ad", date(2026, 10, 30)),
+            raw("other-ad", target),
+        ]
+
+        plan = build_update_plan(
+            source, [destination("rec-new", "new-ad", "正在投放")],
+            SOURCE_FIELDS, DESTINATION_FIELDS, target,
+            active_status="正在投放", stopped_status="已暂停", zero_days=2,
+            timezone_name="Asia/Shanghai",
+        )
+
+        self.assertEqual(plan["updates"], [])
+        self.assertEqual(plan["skipped_missing_target"], ["new-ad"])
+        self.assertEqual(plan["inferred_zero_days"], [])
 
     def test_cumulative_metrics_are_written_to_individual_columns(self):
         target = date(2026, 10, 31)

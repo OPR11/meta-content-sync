@@ -167,9 +167,9 @@ def aggregate(
     fields: dict[str, str],
     target: date,
     timezone_name: str = "Asia/Shanghai",
-) -> tuple[dict[str, dict[date, dict[str, Decimal]]], bool]:
+) -> tuple[dict[str, dict[date, dict[str, Decimal]]], set[date]]:
     data: dict[str, dict[date, dict[str, Decimal]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(Decimal)))
-    target_seen = False
+    dates_seen: set[date] = set()
     for record in source_records:
         row = record.get("fields", {})
         ad_id = text(row.get(fields["ad_id"]))
@@ -178,8 +178,7 @@ def aggregate(
         row_date = parse_date(row.get(fields["date"]), timezone_name)
         if row_date > target:
             continue
-        if row_date == target:
-            target_seen = True
+        dates_seen.add(row_date)
         parsed: dict[str, Decimal] = {}
         for metric, column in fields.items():
             if metric not in ("date", "ad_id") and column:
@@ -192,7 +191,7 @@ def aggregate(
                 parsed["video_avg_watch_time_seconds"]
                 * parsed.get("video_plays", Decimal("0"))
             )
-    return data, target_seen
+    return data, dates_seen
 
 
 def explicit_zero_spend_days(
@@ -285,22 +284,40 @@ def build_update_plan(
     timezone_name: str,
 ) -> dict[str, Any]:
     """Plan destination changes without performing any Feishu writes."""
-    by_ad, _target_seen = aggregate(
+    by_ad, complete_source_dates = aggregate(
         source_records, source_fields, target, timezone_name
     )
     updates = []
     skipped_not_active = 0
     skipped_missing_target = []
+    inferred_zero_days = []
     for record in destination_records:
         fields = record.get("fields", {})
         ad_id = text(fields.get(destination_fields["ad_id"]))
         if text(fields.get(destination_fields["status"])) != active_status:
             skipped_not_active += 1
             continue
-        ad_days = by_ad.get(ad_id)
-        if not ad_days or target not in ad_days:
+        history = by_ad.get(ad_id)
+        if not history:
             skipped_missing_target.append(ad_id)
             continue
+        ad_days = {day: dict(metrics) for day, metrics in history.items()}
+        first_history_date = min(ad_days)
+        inferred_dates = []
+        for offset in range(zero_days - 1, -1, -1):
+            day = target - timedelta(days=offset)
+            if (
+                day >= first_history_date
+                and day in complete_source_dates
+                and day not in ad_days
+            ):
+                ad_days[day] = {}
+                inferred_dates.append(day)
+        if target not in ad_days:
+            skipped_missing_target.append(ad_id)
+            continue
+        if inferred_dates:
+            inferred_zero_days.append({"ad_id": ad_id, "dates": inferred_dates})
         totals = cumulative_totals(ad_days, target)
         write_fields = metric_update_fields(totals, source_fields, destination_fields)
         if explicit_zero_spend_days(ad_days, target, zero_days):
@@ -321,6 +338,7 @@ def build_update_plan(
         "updates": updates,
         "skipped_not_active": skipped_not_active,
         "skipped_missing_target": skipped_missing_target,
+        "inferred_zero_days": inferred_zero_days,
     }
 
 
@@ -359,10 +377,10 @@ def main() -> int:
         return 0
 
     source_rows = client.records(config["source"]["app_token"], config["source"]["table_id"])
-    by_ad, target_seen = aggregate(
+    by_ad, complete_source_dates = aggregate(
         source_rows, config["source"]["fields"], target, tz.key
     )
-    if not target_seen:
+    if target not in complete_source_dates:
         print(f"{target}: Raw table has no records for the target date; will retry later.")
         return 0
     destination_rows = client.records(config["destination"]["app_token"], config["destination"]["table_id"])
@@ -398,20 +416,31 @@ def main() -> int:
             f"Active destination ads with no {target} Raw row "
             f"({len(missing_target)}): {', '.join(missing_target[:20])}"
         )
+    if plan["inferred_zero_days"]:
+        inferred = plan["inferred_zero_days"]
+        preview = "; ".join(
+            f"{item['ad_id']}: {', '.join(day.isoformat() for day in item['dates'])}"
+            for item in inferred[:20]
+        )
+        print(
+            "Active destination ads with inferred zero-spend Raw dates "
+            f"({len(inferred)}): {preview}"
+        )
+    paused_count = sum(
+        item["fields"].get(dest_fields["status"])
+        == config["destination"]["stopped_status"]
+        for item in updates
+    )
     if args.dry_run:
         print(
             f"{target}: dry run complete. Would update {len(updates)} running ads; "
+            f"would pause {paused_count}; "
             "no Feishu records or sync state were changed."
         )
         return 0
     if updates:
         client.batch_update(config["destination"]["app_token"], config["destination"]["table_id"], updates)
     state_path.write_text(json.dumps({"last_successful_report_date": target.isoformat(), "completed_at": datetime.now(tz).isoformat()}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    paused_count = sum(
-        item["fields"].get(dest_fields["status"])
-        == config["destination"]["stopped_status"]
-        for item in updates
-    )
     print(
         f"{target}: success. Updated {len(updates)} running ads; "
         f"paused {paused_count}; skipped non-running {plan['skipped_not_active']}; "
