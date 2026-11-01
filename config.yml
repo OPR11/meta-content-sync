@@ -18,15 +18,30 @@ source:
     clicks: ""
     purchases: ""
     purchase_value: ""
+    video_3s_views: ""
+    video_plays: ""
+    video_avg_watch_time_seconds: ""
+    likes: ""
+    comments: ""
 
 destination:
   wiki_url: https://m5cbccobcv.feishu.cn/wiki/Ac12wkkv1iaz2sk3XzYcqMnRnef?table=tblv7jvWOYGVeOTK&view=vewEOx5FxC
   table_id: tblv7jvWOYGVeOTK # META内容中台源表
   fields:
-    ad_id: ""
-    status: ""
-    lifecycle: ""
-    cumulative_performance: ""
+    ad_id: 广告ID
+    status: 素材状态
+    end_date: 结束投放时间
+    spend: Spend
+    purchases: Purchase
+    roas: ROAS
+    ctr: CTR
+    frequency: Frequency
+    impressions: 曝光量（展示次数）
+    clicks: 链接点击量
+    video_avg_watch_time_seconds: 视频平均播放时间（秒）
+    video_3s_rate: 3秒完播率
+    likes: 点赞数
+    comments: 评论数
     last_synced_date: "" # Optional; leave blank to omit.
   active_status: 正在投放
   stopped_status: 已暂停
@@ -35,4 +50,3 @@ destination:
 # otherwise -> 正在投放. 已暂停 is a terminal value for this program and is never reversed.
 rules:
   stopped_after_zero_spend_days: 2
-  allow_empty_status_initialization: true

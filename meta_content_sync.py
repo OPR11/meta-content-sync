@@ -60,12 +60,17 @@ def number(value: Any) -> Decimal:
         raise SyncError(f"Cannot parse numeric value: {value!r}") from error
 
 
-def parse_date(value: Any) -> date:
+def parse_date(value: Any, timezone_name: str = "Asia/Shanghai") -> date:
     raw = text(value)
     if raw.isdigit() and len(raw) >= 10:
-        return datetime.fromtimestamp(int(raw) / 1000, tz=ZoneInfo("UTC")).date()
+        return datetime.fromtimestamp(
+            int(raw) / 1000, tz=ZoneInfo(timezone_name)
+        ).date()
     try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(ZoneInfo(timezone_name))
+        return parsed.date()
     except ValueError:
         try:
             return datetime.strptime(raw[:10], "%Y-%m-%d").date()
@@ -131,8 +136,22 @@ class Feishu:
 def required_mappings(config: dict[str, Any]) -> list[str]:
     source = config["source"]["fields"]
     destination = config["destination"]["fields"]
-    missing = [f"source.fields.{key}" for key in ("date", "ad_id", "spend", "impressions") if not source.get(key)]
-    missing += [f"destination.fields.{key}" for key in ("ad_id", "status", "lifecycle", "cumulative_performance") if not destination.get(key)]
+    missing = [
+        f"source.fields.{key}"
+        for key in (
+            "date", "ad_id", "spend", "impressions", "reach", "clicks",
+            "purchases", "purchase_value",
+        )
+        if not source.get(key)
+    ]
+    missing += [
+        f"destination.fields.{key}"
+        for key in (
+            "ad_id", "status", "end_date", "spend", "purchases", "roas",
+            "ctr", "frequency", "impressions", "clicks",
+        )
+        if not destination.get(key)
+    ]
     return missing
 
 
@@ -143,7 +162,12 @@ def field_report(client: Feishu, label: str, spec: dict[str, Any]) -> None:
         print(f"  - {item['field_name']!r} | id={item['field_id']} | type={item['type']}")
 
 
-def aggregate(source_records: list[dict[str, Any]], fields: dict[str, str], target: date) -> tuple[dict[str, dict[date, dict[str, Decimal]]], bool]:
+def aggregate(
+    source_records: list[dict[str, Any]],
+    fields: dict[str, str],
+    target: date,
+    timezone_name: str = "Asia/Shanghai",
+) -> tuple[dict[str, dict[date, dict[str, Decimal]]], bool]:
     data: dict[str, dict[date, dict[str, Decimal]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(Decimal)))
     target_seen = False
     for record in source_records:
@@ -151,53 +175,160 @@ def aggregate(source_records: list[dict[str, Any]], fields: dict[str, str], targ
         ad_id = text(row.get(fields["ad_id"]))
         if not ad_id:
             continue
-        row_date = parse_date(row.get(fields["date"]))
+        row_date = parse_date(row.get(fields["date"]), timezone_name)
         if row_date > target:
             continue
         if row_date == target:
             target_seen = True
+        parsed: dict[str, Decimal] = {}
         for metric, column in fields.items():
             if metric not in ("date", "ad_id") and column:
-                data[ad_id][row_date][metric] += number(row.get(column))
+                parsed[metric] = number(row.get(column))
+        for metric, value in parsed.items():
+            if metric != "video_avg_watch_time_seconds":
+                data[ad_id][row_date][metric] += value
+        if "video_avg_watch_time_seconds" in parsed:
+            data[ad_id][row_date]["video_watch_time_weighted"] += (
+                parsed["video_avg_watch_time_seconds"]
+                * parsed.get("video_plays", Decimal("0"))
+            )
     return data, target_seen
 
 
-def lifecycle(ad_days: dict[date, dict[str, Decimal]], target: date, zero_days: int) -> tuple[bool, dict[str, Any]]:
-    spends = {day: metrics.get("spend", Decimal("0")) for day, metrics in ad_days.items()}
-    paid_days = sorted(day for day, spend in spends.items() if spend > 0)
-    recent = [spends.get(target - timedelta(days=offset), Decimal("0")) for offset in range(zero_days)]
-    stopped = all(spend == 0 for spend in recent)
-    return stopped, {
-        "first_date": paid_days[0].isoformat() if paid_days else "",
-        "last_date": paid_days[-1].isoformat() if paid_days else "",
-        "paid_days": len(paid_days),
-        "lifecycle_days": ((target - paid_days[0]).days + 1) if paid_days else 0,
-        "stopped_days": (target - paid_days[-1]).days if stopped and paid_days else 0,
-    }
+def explicit_zero_spend_days(
+    ad_days: dict[date, dict[str, Decimal]], target: date, zero_days: int
+) -> bool:
+    days = [target - timedelta(days=offset) for offset in range(zero_days)]
+    return all(
+        day in ad_days and ad_days[day].get("spend", Decimal("0")) == 0
+        for day in days
+    )
 
 
-def display_decimal(value: Decimal) -> str:
-    return f"{value.quantize(Decimal('0.01')):,}" if value % 1 else f"{int(value):,}"
-
-
-def summaries(ad_days: dict[date, dict[str, Decimal]], target: date, life: dict[str, Any]) -> tuple[str, str]:
+def cumulative_totals(
+    ad_days: dict[date, dict[str, Decimal]], target: date
+) -> dict[str, Decimal]:
     totals: dict[str, Decimal] = defaultdict(Decimal)
-    for metrics in ad_days.values():
+    for day, metrics in ad_days.items():
+        if day > target:
+            continue
         for key, value in metrics.items():
             totals[key] += value
-    impressions, clicks, spend = totals["impressions"], totals["clicks"], totals["spend"]
-    ctr = clicks / impressions * 100 if impressions else Decimal("0")
-    cpm = spend / impressions * 1000 if impressions else Decimal("0")
-    cpc = spend / clicks if clicks else Decimal("0")
-    lifecycle_text = f"首次投放 {life['first_date'] or '—'}｜最近投放 {life['last_date'] or '—'}｜投放 {life['paid_days']} 天｜生命周期 {life['lifecycle_days']} 天"
-    performance_text = f"截至 {target.isoformat()}｜花费 ${display_decimal(spend)}｜曝光 {display_decimal(impressions)}｜触达 {display_decimal(totals['reach'])}｜点击 {display_decimal(clicks)}｜CTR {ctr:.2f}%｜CPM ${cpm:.2f}｜CPC ${cpc:.2f}｜购买 {display_decimal(totals['purchases'])}｜销售额 ${display_decimal(totals['purchase_value'])}"
-    return lifecycle_text, performance_text
+    return totals
+
+
+def last_delivery_date(
+    ad_days: dict[date, dict[str, Decimal]], target: date
+) -> date | None:
+    delivered = [
+        day for day, metrics in ad_days.items()
+        if day <= target and (
+            metrics.get("spend", Decimal("0")) > 0
+            or metrics.get("impressions", Decimal("0")) > 0
+        )
+    ]
+    return max(delivered) if delivered else None
+
+
+def feishu_date_value(day: date, timezone_name: str) -> int:
+    return int(datetime.combine(day, datetime.min.time(), ZoneInfo(timezone_name)).timestamp() * 1000)
+
+
+def metric_update_fields(
+    totals: dict[str, Decimal],
+    source_fields: dict[str, str],
+    destination_fields: dict[str, str],
+) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+
+    def write(metric: str, value: Decimal) -> None:
+        destination = destination_fields.get(metric)
+        if destination:
+            result[destination] = float(value)
+
+    if source_fields.get("spend"):
+        write("spend", totals["spend"])
+    if source_fields.get("purchases"):
+        write("purchases", totals["purchases"])
+    if source_fields.get("impressions"):
+        write("impressions", totals["impressions"])
+    if source_fields.get("clicks"):
+        write("clicks", totals["clicks"])
+    if source_fields.get("purchase_value") and source_fields.get("spend"):
+        write("roas", totals["purchase_value"] / totals["spend"] if totals["spend"] else Decimal("0"))
+    if source_fields.get("clicks") and source_fields.get("impressions"):
+        write("ctr", totals["clicks"] / totals["impressions"] if totals["impressions"] else Decimal("0"))
+    if source_fields.get("reach") and source_fields.get("impressions"):
+        write("frequency", totals["impressions"] / totals["reach"] if totals["reach"] else Decimal("0"))
+    if source_fields.get("video_3s_views") and source_fields.get("impressions"):
+        write("video_3s_rate", totals["video_3s_views"] / totals["impressions"] if totals["impressions"] else Decimal("0"))
+    if source_fields.get("likes"):
+        write("likes", totals["likes"])
+    if source_fields.get("comments"):
+        write("comments", totals["comments"])
+    if source_fields.get("video_avg_watch_time_seconds") and source_fields.get("video_plays"):
+        weighted = totals["video_watch_time_weighted"]
+        write("video_avg_watch_time_seconds", weighted / totals["video_plays"] if totals["video_plays"] else Decimal("0"))
+    return result
+
+
+def build_update_plan(
+    source_records: list[dict[str, Any]],
+    destination_records: list[dict[str, Any]],
+    source_fields: dict[str, str],
+    destination_fields: dict[str, str],
+    target: date,
+    *,
+    active_status: str,
+    stopped_status: str,
+    zero_days: int,
+    timezone_name: str,
+) -> dict[str, Any]:
+    """Plan destination changes without performing any Feishu writes."""
+    by_ad, _target_seen = aggregate(
+        source_records, source_fields, target, timezone_name
+    )
+    updates = []
+    skipped_not_active = 0
+    skipped_missing_target = []
+    for record in destination_records:
+        fields = record.get("fields", {})
+        ad_id = text(fields.get(destination_fields["ad_id"]))
+        if text(fields.get(destination_fields["status"])) != active_status:
+            skipped_not_active += 1
+            continue
+        ad_days = by_ad.get(ad_id)
+        if not ad_days or target not in ad_days:
+            skipped_missing_target.append(ad_id)
+            continue
+        totals = cumulative_totals(ad_days, target)
+        write_fields = metric_update_fields(totals, source_fields, destination_fields)
+        if explicit_zero_spend_days(ad_days, target, zero_days):
+            write_fields[destination_fields["status"]] = stopped_status
+            ended = last_delivery_date(ad_days, target)
+            if destination_fields.get("end_date"):
+                write_fields[destination_fields["end_date"]] = (
+                    feishu_date_value(ended, timezone_name) if ended else None
+                )
+        elif destination_fields.get("end_date"):
+            write_fields[destination_fields["end_date"]] = None
+        if destination_fields.get("last_synced_date"):
+            write_fields[destination_fields["last_synced_date"]] = (
+                feishu_date_value(target, timezone_name)
+            )
+        updates.append({"record_id": record["record_id"], "fields": write_fields})
+    return {
+        "updates": updates,
+        "skipped_not_active": skipped_not_active,
+        "skipped_missing_target": skipped_missing_target,
+    }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="config/config.yml")
+    parser.add_argument("--config", default="config.yml")
     parser.add_argument("--diagnose", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     config = load_config(Path(args.config))
     client = Feishu(config["feishu"]["app_id"], config["feishu"]["app_secret"])
@@ -220,12 +351,17 @@ def main() -> int:
     target = datetime.now(tz).date() - timedelta(days=1)
     state_path = Path("state/sync_state.json")
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    if state.get("last_successful_report_date") == target.isoformat():
+    if (
+        not args.dry_run
+        and state.get("last_successful_report_date") == target.isoformat()
+    ):
         print(f"{target}: already completed; exiting without Feishu updates.")
         return 0
 
     source_rows = client.records(config["source"]["app_token"], config["source"]["table_id"])
-    by_ad, target_seen = aggregate(source_rows, config["source"]["fields"], target)
+    by_ad, target_seen = aggregate(
+        source_rows, config["source"]["fields"], target, tz.key
+    )
     if not target_seen:
         print(f"{target}: Raw table has no records for the target date; will retry later.")
         return 0
@@ -240,37 +376,47 @@ def main() -> int:
             raise SyncError(f"Destination Ad ID is not unique: {ad_id}")
         destination_by_ad[ad_id] = record
 
-    updates, unmatched = [], []
-    stopped, active = config["destination"]["stopped_status"], config["destination"]["active_status"]
-    for ad_id, record in destination_by_ad.items():
-        fields = record.get("fields", {})
-        current_status = text(fields.get(dest_fields["status"]))
-        if current_status == stopped:
-            continue  # Terminal lock: never re-open and never update its data.
-        if current_status not in ("", active):
-            continue
-        if current_status == "" and not config["rules"]["allow_empty_status_initialization"]:
-            continue
-        ad_days = by_ad.get(ad_id)
-        if not ad_days:
-            continue
-        is_stopped, life = lifecycle(ad_days, target, config["rules"]["stopped_after_zero_spend_days"])
-        if is_stopped:
-            updates.append({"record_id": record["record_id"], "fields": {dest_fields["status"]: stopped}})
-            continue  # Do not change performance values on the stopping run.
-        lifecycle_text, performance_text = summaries(ad_days, target, life)
-        write_fields = {dest_fields["status"]: active, dest_fields["lifecycle"]: lifecycle_text, dest_fields["cumulative_performance"]: performance_text}
-        if dest_fields.get("last_synced_date"):
-            write_fields[dest_fields["last_synced_date"]] = target.isoformat()
-        updates.append({"record_id": record["record_id"], "fields": write_fields})
+    plan = build_update_plan(
+        source_rows,
+        destination_rows,
+        config["source"]["fields"],
+        dest_fields,
+        target,
+        active_status=config["destination"]["active_status"],
+        stopped_status=config["destination"]["stopped_status"],
+        zero_days=config["rules"]["stopped_after_zero_spend_days"],
+        timezone_name=tz.key,
+    )
+    updates = plan["updates"]
 
     raw_only = sorted(set(by_ad) - set(destination_by_ad))
     if raw_only:
         print(f"Raw IDs with no destination record ({len(raw_only)}): {', '.join(raw_only[:20])}")
+    if plan["skipped_missing_target"]:
+        missing_target = plan["skipped_missing_target"]
+        print(
+            f"Active destination ads with no {target} Raw row "
+            f"({len(missing_target)}): {', '.join(missing_target[:20])}"
+        )
+    if args.dry_run:
+        print(
+            f"{target}: dry run complete. Would update {len(updates)} running ads; "
+            "no Feishu records or sync state were changed."
+        )
+        return 0
     if updates:
         client.batch_update(config["destination"]["app_token"], config["destination"]["table_id"], updates)
     state_path.write_text(json.dumps({"last_successful_report_date": target.isoformat(), "completed_at": datetime.now(tz).isoformat()}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"{target}: success. Updated {len(updates)} destination records; skipped terminal stopped records.")
+    paused_count = sum(
+        item["fields"].get(dest_fields["status"])
+        == config["destination"]["stopped_status"]
+        for item in updates
+    )
+    print(
+        f"{target}: success. Updated {len(updates)} running ads; "
+        f"paused {paused_count}; skipped non-running {plan['skipped_not_active']}; "
+        f"skipped missing target-day data {len(plan['skipped_missing_target'])}."
+    )
     return 0
 
 
