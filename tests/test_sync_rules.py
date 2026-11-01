@@ -67,10 +67,17 @@ def destination(record_id, ad_id, status):
 
 
 class SyncRuleTests(unittest.TestCase):
-    def test_repository_stays_in_diagnostic_mode_until_raw_fields_are_verified(self):
+    def test_repository_uses_verified_raw_fields_in_sync_mode(self):
         config = yaml.safe_load(Path("config.yml").read_text(encoding="utf-8"))
 
-        self.assertEqual(config["mode"], "diagnostic")
+        self.assertEqual(config["mode"], "sync")
+        self.assertEqual(config["source"]["fields"]["date"], "日期")
+        self.assertEqual(config["source"]["fields"]["ad_id"], "广告ID")
+        self.assertEqual(config["source"]["fields"]["spend"], "Amount spend")
+        self.assertEqual(
+            config["source"]["fields"]["purchase_value"],
+            "PCV（购物转化价值）",
+        )
         self.assertEqual(config["destination"]["fields"]["status"], "素材状态")
         self.assertEqual(config["destination"]["fields"]["spend"], "Spend")
 

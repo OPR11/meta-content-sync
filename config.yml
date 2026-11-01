@@ -1,5 +1,5 @@
-# Start in diagnostic mode. Change to "sync" only after field mapping is verified.
-mode: diagnostic
+# Field mapping verified from the Feishu diagnostic output.
+mode: sync
 timezone: Asia/Shanghai
 
 feishu:
@@ -10,14 +10,14 @@ source:
   wiki_url: https://lcnjnx6udyw7.feishu.cn/wiki/Ka4pw0Asvif29vkfTLschR9Kn4g?table=tblHqpejaSqzcsOX
   table_id: tblHqpejaSqzcsOX # US-META 26 Ad Daily Raw
   fields:
-    date: ""
-    ad_id: ""
-    spend: ""
-    impressions: ""
-    reach: ""
-    clicks: ""
-    purchases: ""
-    purchase_value: ""
+    date: 日期
+    ad_id: 广告ID
+    spend: Amount spend
+    impressions: Impressions
+    reach: Reach
+    clicks: Link clicks
+    purchases: Purchases
+    purchase_value: PCV（购物转化价值）
     video_3s_views: ""
     video_plays: ""
     video_avg_watch_time_seconds: ""
