@@ -25,8 +25,8 @@ source:
     comments: ""
 
 destination:
-  wiki_url: https://m5cbccobcv.feishu.cn/wiki/Ac12wkkv1iaz2sk3XzYcqMnRnef?table=tblv7jvWOYGVeOTK&view=vewEOx5FxC
-  table_id: tblv7jvWOYGVeOTK # META内容中台源表
+  wiki_url: https://lcnjnx6udyw7.feishu.cn/base/FZt2b3p84aa49FsiAk5ceY0Gndd?table=blkWtFfUqqb2v93H
+  table_id: tbldzTZnNOC1UK6s # META内容中台源表（API table ID）
   fields:
     ad_id: 广告ID
     status: 素材状态
