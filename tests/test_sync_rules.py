@@ -5,7 +5,13 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from meta_content_sync import build_update_plan, parse_date
+from meta_content_sync import (
+    Feishu,
+    build_update_plan,
+    destination_scope,
+    parse_date,
+    state_completed_for_destination,
+)
 
 
 SOURCE_FIELDS = {
@@ -80,6 +86,29 @@ class SyncRuleTests(unittest.TestCase):
         )
         self.assertEqual(config["destination"]["fields"]["status"], "素材状态")
         self.assertEqual(config["destination"]["fields"]["spend"], "Spend")
+        self.assertEqual(config["destination"]["table_id"], "tbldzTZnNOC1UK6s")
+
+    def test_base_url_resolves_app_token_without_wiki_request(self):
+        client = object.__new__(Feishu)
+        client._request = lambda *_args, **_kwargs: self.fail("Base URL must not call Wiki")
+
+        token = client.app_token_from_link(
+            "https://lcnjnx6udyw7.feishu.cn/base/FZt2b3p84aa49FsiAk5ceY0Gndd?table=blkWtFfUqqb2v93H",
+            "tbldzTZnNOC1UK6s",
+        )
+
+        self.assertEqual(token, "FZt2b3p84aa49FsiAk5ceY0Gndd")
+
+    def test_sync_state_is_not_reused_after_destination_changes(self):
+        prior_scope = {"app_token": "old-base", "table_id": "old-table"}
+        new_scope = destination_scope({"app_token": "new-base", "table_id": "new-table"})
+        state = {
+            "last_successful_report_date": "2026-11-01",
+            "destination_scope": prior_scope,
+        }
+
+        self.assertFalse(state_completed_for_destination(state, date(2026, 11, 1), new_scope))
+        self.assertTrue(state_completed_for_destination(state, date(2026, 11, 1), prior_scope))
 
     def test_feishu_timestamp_is_parsed_in_shanghai_timezone(self):
         shanghai_midnight = datetime(

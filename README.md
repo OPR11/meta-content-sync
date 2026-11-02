@@ -25,10 +25,10 @@ Daily Feishu synchronization for the Meta content hub. It reads **US-META 26 Ad 
    | --- | --- |
    | `FEISHU_APP_ID` | Feishu self-built application App ID |
    | `FEISHU_APP_SECRET` | Feishu self-built application App Secret |
-   | `FEISHU_SOURCE_APP_TOKEN` | Optional source Base token; skips source Wiki resolution |
-   | `FEISHU_DESTINATION_APP_TOKEN` | Optional destination Base token; skips destination Wiki resolution |
+   | `FEISHU_SOURCE_APP_TOKEN` | Optional source Base token; skips link resolution |
+   | `FEISHU_DESTINATION_APP_TOKEN` | Optional destination Base token; skips link resolution |
 
-2. Grant the app read access to Raw and read/write access to the destination Base. When both optional Base token secrets are set, the script accesses the Bases directly and does not call Wiki. Without a token, it resolves that Base from its `wiki_url`, which also requires Wiki node read scope and access to that node.
+2. Grant the app read access to Raw and read/write access to the destination Base. When an optional Base token secret is set, the script accesses that Base directly. Without one, it can resolve either a direct `/base/<app_token>` link or a `/wiki/<node_token>` link; Wiki links additionally require Wiki node read scope and access to that node.
 3. Run **Actions → Meta content sync → Run workflow** once. The repository starts in `diagnostic` mode: it prints each table's field names, IDs, and types and changes no records.
 4. Copy the verified Raw field names into `config.yml`. Destination metric fields must be numeric fields; status is a single-select field and end date is a date field.
 5. Change `mode: diagnostic` to `mode: sync` and commit the configuration.
@@ -52,10 +52,10 @@ Calculated cumulative values use these formulas:
 - `3-second rate = video_3s_views / impressions`
 - Average watch time is weighted by video plays.
 
-`source.wiki_url`, `destination.wiki_url`, and both table IDs are prefilled from the supplied Feishu links. No Base token secrets are required. Confirm both tables with the diagnostic output before live sync.
+`source.wiki_url`, `destination.wiki_url`, and both table IDs are prefilled from the supplied Feishu links. Direct Base links and Wiki links can both be used without Base token secrets. For a Base sharing URL, the `table` query parameter may be a block ID (`blk...`), so `table_id` must remain the actual Bitable API table ID. Confirm both tables with the diagnostic output before live sync.
 
 ## Manual recovery
 
 - To re-enable an intentionally restarted ad, manually change its status in Feishu to `正在投放`. The next successful run can update it again.
-- To reprocess a report date, edit `state/sync_state.json` and clear or replace `last_successful_report_date`, then run the workflow manually.
+- To reprocess a report date, edit `state/sync_state.json` and clear or replace `last_successful_report_date`, then run the workflow manually. The state is scoped to the destination Base and table; switching target tables automatically permits one catch-up run.
 - The workflow commits only changes to `state/sync_state.json`; credentials are never stored in the repository.

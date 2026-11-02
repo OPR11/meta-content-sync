@@ -98,13 +98,20 @@ class Feishu:
             raise SyncError(f"Feishu API request failed ({method} {path}): {payload}")
         return payload
 
-    def wiki_app_token(self, wiki_url: str, table_id: str) -> str:
-        parsed = urlsplit(wiki_url)
+    def app_token_from_link(self, feishu_url: str, table_id: str) -> str:
+        """Resolve either a direct Base URL or a Wiki URL to its app token."""
+        parsed = urlsplit(feishu_url)
         if parsed.scheme != "https" or not parsed.hostname or not parsed.hostname.endswith(".feishu.cn"):
-            raise SyncError(f"Invalid Feishu Wiki URL: {wiki_url}")
+            raise SyncError(f"Invalid Feishu URL: {feishu_url}")
+        base_match = re.fullmatch(r"/base/([A-Za-z0-9]+)", parsed.path)
+        if base_match:
+            # A Base sharing URL can contain a block ID (``blk...``) in its
+            # ``table`` query parameter, so the configured API table ID is
+            # deliberately validated by the later fields/records API calls.
+            return base_match.group(1)
         match = re.fullmatch(r"/wiki/([A-Za-z0-9]+)", parsed.path)
         if not match:
-            raise SyncError(f"Expected a Feishu Wiki node URL: {wiki_url}")
+            raise SyncError(f"Expected a Feishu Base or Wiki URL: {feishu_url}")
         url_table = parse_qs(parsed.query).get("table", [""])[0]
         if url_table != table_id:
             raise SyncError(f"Wiki link table ID {url_table!r} differs from configured {table_id!r}.")
@@ -131,6 +138,21 @@ class Feishu:
     def batch_update(self, app_token: str, table_id: str, records: list[dict[str, Any]]) -> None:
         for start in range(0, len(records), 500):
             self._request("POST", f"/bitable/v1/apps/{app_token}/tables/{table_id}/records/batch_update", json={"records": records[start:start + 500]})
+
+
+def destination_scope(spec: dict[str, Any]) -> dict[str, str]:
+    """Identity of the table a persisted daily-sync state belongs to."""
+    return {"app_token": str(spec["app_token"]), "table_id": str(spec["table_id"])}
+
+
+def state_completed_for_destination(
+    state: dict[str, Any], target: date, scope: dict[str, str]
+) -> bool:
+    """Only suppress a repeat run when the state belongs to this destination."""
+    return (
+        state.get("last_successful_report_date") == target.isoformat()
+        and state.get("destination_scope") == scope
+    )
 
 
 def required_mappings(config: dict[str, Any]) -> list[str]:
@@ -353,8 +375,14 @@ def main() -> int:
     for label in ("source", "destination"):
         spec = config[label]
         direct_token = os.environ.get(f"FEISHU_{label.upper()}_APP_TOKEN", "").strip()
-        spec["app_token"] = direct_token or client.wiki_app_token(spec["wiki_url"], spec["table_id"])
-        print(f"{label.upper()}: using {'configured Base token' if direct_token else 'Wiki resolution'}.")
+        spec["app_token"] = direct_token or client.app_token_from_link(spec["wiki_url"], spec["table_id"])
+        if direct_token:
+            resolution = "configured Base token"
+        elif urlsplit(spec["wiki_url"]).path.startswith("/base/"):
+            resolution = "Base URL"
+        else:
+            resolution = "Wiki resolution"
+        print(f"{label.upper()}: using {resolution}.")
 
     if args.diagnose or config.get("mode") == "diagnostic":
         field_report(client, "SOURCE", config["source"])
@@ -369,12 +397,16 @@ def main() -> int:
     target = datetime.now(tz).date() - timedelta(days=1)
     state_path = Path("state/sync_state.json")
     state = json.loads(state_path.read_text(encoding="utf-8"))
+    scope = destination_scope(config["destination"])
+    if not args.dry_run and state_completed_for_destination(state, target, scope):
+        print(f"{target}: already completed; exiting without Feishu updates.")
+        return 0
     if (
         not args.dry_run
         and state.get("last_successful_report_date") == target.isoformat()
+        and state.get("destination_scope") != scope
     ):
-        print(f"{target}: already completed; exiting without Feishu updates.")
-        return 0
+        print(f"{target}: destination changed; synchronizing this target once for the new table.")
 
     source_rows = client.records(config["source"]["app_token"], config["source"]["table_id"])
     by_ad, complete_source_dates = aggregate(
@@ -440,7 +472,7 @@ def main() -> int:
         return 0
     if updates:
         client.batch_update(config["destination"]["app_token"], config["destination"]["table_id"], updates)
-    state_path.write_text(json.dumps({"last_successful_report_date": target.isoformat(), "completed_at": datetime.now(tz).isoformat()}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    state_path.write_text(json.dumps({"last_successful_report_date": target.isoformat(), "completed_at": datetime.now(tz).isoformat(), "destination_scope": scope}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(
         f"{target}: success. Updated {len(updates)} running ads; "
         f"paused {paused_count}; skipped non-running {plan['skipped_not_active']}; "
