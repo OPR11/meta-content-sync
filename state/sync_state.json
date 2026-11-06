@@ -1,4 +1,8 @@
 {
-  "last_successful_report_date": "2026-11-01",
-  "completed_at": "2026-11-02T08:03:41.307212+08:00"
+  "last_successful_report_date": "2026-11-05",
+  "completed_at": "2026-11-06T09:18:03.226823+08:00",
+  "destination_scope": {
+    "app_token": "FZt2b3p84aa49FsiAk5ceY0Gndd",
+    "table_id": "tbldzTZnNOC1UK6s"
+  }
 }
